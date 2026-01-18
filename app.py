@@ -6,17 +6,19 @@ import os
 
 # ================= CONFIG =================
 st.set_page_config(
-    page_title="Silence Zone Early Warning System (SZ‑EWS)",
+    page_title="Silence Zone Early Warning System (SZ-EWS)",
     layout="wide"
 )
 
-DATA_PATH = "data_processed/SZEWS_final.csv"
+# Cloud-safe data path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "data_processed", "SZEWS_final.csv")
 
 # ================= LOAD DATA =================
 @st.cache_data
 def load_data():
     if not os.path.exists(DATA_PATH):
-        st.error("Data file not found")
+        st.error("Data file not found in data_processed folder.")
         st.stop()
 
     df = pd.read_csv(DATA_PATH)
@@ -56,6 +58,7 @@ def load_data():
         return "Normal"
 
     df["SZI_Category"] = df["SZI"].apply(cat)
+
     return df.dropna(subset=["SZI", "region_id"])
 
 df = load_data()
@@ -68,12 +71,16 @@ def compute_trends(d):
     d["Pre_Silence_Warning"] = (d["SZI_delta"] < -0.08) & (d["SZI"] > 0.30)
     return d
 
+def safe_norm(col):
+    m = col.max()
+    return col / m if m and m > 0 else 0
+
 def priority_engine(d):
     s = d.copy()
 
-    s["dur_norm"] = s["silence_duration_months"] / s["silence_duration_months"].max()
+    s["dur_norm"] = safe_norm(s["silence_duration_months"])
     s["depth_norm"] = s["suppression_depth_pct"] / 100
-    s["impact_norm"] = s["baseline_total_ma6"] / s["baseline_total_ma6"].max()
+    s["impact_norm"] = safe_norm(s["baseline_total_ma6"])
     s["risk_norm"] = 1 - s["SZI"]
 
     s["Priority_Score"] = (
@@ -87,7 +94,7 @@ def priority_engine(d):
 
 def dynamic_recommendation(r):
     if r["silence_duration_months"] >= 4 and r["suppression_depth_pct"] >= 50:
-        return "Immediate mobile enrollment + infra audit"
+        return "Immediate mobile enrollment and infrastructure audit"
     if r["bio_activity"] < r["demo_activity"]:
         return "Biometric device refresh and operator training"
     if r["enrol_activity"] < r["baseline_total_ma6"] * 0.4:
@@ -105,21 +112,24 @@ sel_cat = st.sidebar.selectbox("SZI Category", cats)
 search = st.sidebar.text_input("Search District / PIN")
 
 df_f = df.copy()
+
 if sel_state != "All":
     df_f = df_f[df_f["state"] == sel_state]
+
 if sel_cat != "All":
     df_f = df_f[df_f["SZI_Category"] == sel_cat]
+
 if search.strip():
     df_f = df_f[
-        df_f["district"].str.contains(search, case=False, na=False) |
-        df_f["pin_code"].str.contains(search, case=False, na=False)
+        df_f["district"].str.contains(search, case=False, na=False)
+        | df_f["pin_code"].str.contains(search, case=False, na=False)
     ]
 
 # ================= KPIs =================
 def show_kpis(d):
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Zones Monitored", len(d))
-    c2.metric("Avg SZI", round(d["SZI"].mean(), 3))
+    c2.metric("Average SZI", round(d["SZI"].mean(), 3))
     c3.metric("Severe Zones", int((d["SZI_Category"] == "Severe Silence").sum()))
     c4.metric("Active Alerts", int((d["alert_flag"] == 1).sum()))
 
@@ -129,7 +139,7 @@ page = st.sidebar.radio(
     [
         "Home",
         "National Overview",
-        "Pre‑Silence Warning",
+        "Pre-Silence Warning",
         "Priority Intelligence",
         "Trend Explorer",
         "Action Planner",
@@ -138,16 +148,18 @@ page = st.sidebar.radio(
 
 # ================= HOME =================
 if page == "Home":
-    st.title("Silence Zone Early Warning System (SZ‑EWS)")
+    st.title("Silence Zone Early Warning System (SZ-EWS)")
 
-    st.markdown("""
-**SZ‑EWS identifies Aadhaar service degradation *before* failure becomes visible.**
+    st.markdown(
+        """
+SZ-EWS detects Aadhaar service degradation before failures become visible.
 
-Instead of tracking high activity, it focuses on:
-- sustained suppression
-- silence propagation
-- intervention prioritisation
-""")
+The system focuses on:
+- Sustained activity suppression
+- Silence propagation patterns
+- Intervention prioritisation using composite risk intelligence
+"""
+    )
 
     show_kpis(df_f)
 
@@ -166,33 +178,33 @@ elif page == "National Overview":
             "Severe Silence": "#c0392b",
             "Moderate Silence": "#f39c12",
             "Normal": "#27ae60",
-        }
+        },
     )
     st.plotly_chart(fig, width="stretch")
 
-    st.subheader("Worst Zones")
+    st.subheader("Worst Performing Zones")
     st.dataframe(
         df_f.sort_values("SZI").head(20)[
             ["state", "district", "pin_code", "SZI", "silence_duration_months"]
         ],
-        width="stretch"
+        width="stretch",
     )
 
-# ================= PRE‑SILENCE =================
-elif page == "Pre‑Silence Warning":
-    st.title("Pre‑Silence Early Warning")
+# ================= PRE-SILENCE =================
+elif page == "Pre-Silence Warning":
+    st.title("Pre-Silence Early Warning")
 
     t = compute_trends(df)
     warn = t[t["Pre_Silence_Warning"] == True]
 
-    if len(warn) == 0:
+    if warn.empty:
         st.info("No imminent silence escalation detected.")
     else:
         st.dataframe(
             warn[
                 ["state", "district", "pin_code", "Month_Label", "SZI", "SZI_delta"]
             ],
-            width="stretch"
+            width="stretch",
         )
 
 # ================= PRIORITY =================
@@ -206,7 +218,7 @@ elif page == "Priority Intelligence":
         x="Priority_Score",
         y="district",
         orientation="h",
-        text="Priority_Score"
+        text="Priority_Score",
     )
     fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
     st.plotly_chart(fig, width="stretch")
@@ -215,21 +227,26 @@ elif page == "Priority Intelligence":
         scored.head(25)[
             ["state", "district", "pin_code", "Priority_Score", "SZI"]
         ],
-        width="stretch"
+        width="stretch",
     )
 
 # ================= TREND =================
 elif page == "Trend Explorer":
     st.title("Silence Trend Explorer")
 
-    region = st.selectbox("Select Region", sorted(df_f["region_id"].unique()))
+    regions = sorted(df_f["region_id"].unique())
+    if not regions:
+        st.warning("No regions available for selected filters.")
+        st.stop()
+
+    region = st.selectbox("Select Region", regions)
     d = df[df["region_id"] == region].sort_values("yyyymm_dt")
 
     fig = px.line(
         d,
         x="yyyymm_dt",
         y=["total_activity", "baseline_total_ma6"],
-        labels={"value": "Activity", "variable": "Metric"}
+        labels={"value": "Activity", "variable": "Metric"},
     )
     st.plotly_chart(fig, width="stretch")
 
@@ -242,8 +259,15 @@ elif page == "Action Planner":
 
     st.dataframe(
         scored[
-            ["state", "district", "pin_code", "SZI",
-             "silence_duration_months", "Priority_Score", "Recommended_Action"]
+            [
+                "state",
+                "district",
+                "pin_code",
+                "SZI",
+                "silence_duration_months",
+                "Priority_Score",
+                "Recommended_Action",
+            ]
         ],
-        width="stretch"
+        width="stretch",
     )
