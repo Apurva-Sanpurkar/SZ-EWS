@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Cloud-safe data path
+# Cloud-safe path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(BASE_DIR, "data_processed", "SZEWS_final.csv")
 
@@ -35,7 +35,7 @@ def load_data():
         "demo_activity",
         "bio_activity",
         "alert_flag",
-        "silence_duration_months"
+        "silence_duration_months",
     ]
     for c in num_cols:
         if c in df.columns:
@@ -149,30 +149,33 @@ page = st.sidebar.radio(
 # ================= HOME =================
 if page == "Home":
     st.title("Silence Zone Early Warning System (SZ-EWS)")
-
     st.markdown(
         """
 SZ-EWS detects Aadhaar service degradation before failures become visible.
 
-The system focuses on:
-- Sustained activity suppression
-- Silence propagation patterns
-- Intervention prioritisation using composite risk intelligence
+The system focuses on sustained suppression, silence propagation,
+and intervention prioritisation using composite risk intelligence.
 """
     )
-
     show_kpis(df_f)
 
 # ================= NATIONAL OVERVIEW =================
 elif page == "National Overview":
     st.title("National Silence Landscape")
-
     show_kpis(df_f)
 
+    # FIXED PIE CHART (CLOUD SAFE)
+    cat_df = (
+        df_f["SZI_Category"]
+        .value_counts()
+        .reset_index(name="Count")
+        .rename(columns={"SZI_Category": "Category"})
+    )
+
     fig = px.pie(
-        df_f["SZI_Category"].value_counts().reset_index(),
-        names="index",
-        values="SZI_Category",
+        cat_df,
+        names="Category",
+        values="Count",
         hole=0.55,
         color_discrete_map={
             "Severe Silence": "#c0392b",
